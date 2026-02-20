@@ -3,7 +3,6 @@
 import {
   createCliRenderer,
   RGBA,
-  FrameBufferRenderable,
   TextRenderable,
   type KeyEvent,
 } from "@opentui/core"
@@ -19,12 +18,10 @@ import {
   OctahedronGeometry,
   TorusKnotGeometry,
   Group,
-  Vector3,
 } from "three"
 import { MeshPhongNodeMaterial } from "three/webgpu"
-import { lights } from "three/tsl"
-import { color } from "three/tsl"
-import { ThreeCliRenderer } from "@opentui/core/3d"
+import { lights, color } from "three/tsl"
+import { ThreeRenderable } from "@opentui/core/3d"
 
 async function main() {
   const renderer = await createCliRenderer({
@@ -37,30 +34,26 @@ async function main() {
   const WIDTH = renderer.terminalWidth
   const HEIGHT = renderer.terminalHeight
 
-  // FrameBuffer for 3D rendering
-  const fbRenderable = new FrameBufferRenderable(renderer, {
-    id: "scene-fb",
-    width: WIDTH,
-    height: HEIGHT,
-    zIndex: 10,
-  })
-  renderer.root.add(fbRenderable)
-  const { frameBuffer } = fbRenderable
+  const scene = new Scene()
 
-  // Three.js engine
-  const engine = new ThreeCliRenderer(renderer, {
-    width: WIDTH,
-    height: HEIGHT,
-    focalLength: 8,
-    backgroundColor: RGBA.fromValues(0.02, 0.0, 0.05, 1.0),
-  })
-  await engine.init()
-
-  const camera = new PerspectiveCamera(60, engine.aspectRatio, 0.01, 200)
+  const camera = new PerspectiveCamera(60, 1, 0.01, 200)
   camera.position.set(0, 8, 18)
   camera.lookAt(0, 0, 0)
 
-  const scene = new Scene()
+  // ThreeRenderable handles FrameBuffer + ThreeCliRenderer + frame callback integration
+  const threeView = new ThreeRenderable(renderer, {
+    id: "scene-3d",
+    width: WIDTH,
+    height: HEIGHT,
+    zIndex: 10,
+    scene,
+    camera,
+    renderer: {
+      backgroundColor: RGBA.fromValues(0.02, 0.0, 0.05, 1.0),
+    },
+  })
+  renderer.root.add(threeView)
+  const engine = threeView.renderer
 
   // --- Lights ---
   const sunLight = new PointLight(0xffdd44, 1, 100)
@@ -205,7 +198,6 @@ async function main() {
     scene.add(star)
   }
 
-  engine.setActiveCamera(camera)
   scene.add(camera)
 
   // --- HUD Text ---
@@ -233,10 +225,6 @@ async function main() {
 
   // --- Resize handler ---
   renderer.on("resize", (w: number, h: number) => {
-    frameBuffer.resize(w, h)
-    engine.setSize(w, h)
-    camera.aspect = engine.aspectRatio
-    camera.updateProjectionMatrix()
     controlsText.y = h - 1
   })
 
@@ -262,7 +250,7 @@ async function main() {
   })
 
   // --- Animation loop ---
-  const animate = async (deltaTime: number) => {
+  renderer.setFrameCallback(async (deltaTime: number) => {
     const time = performance.now() / 1000
 
     // Sun pulsation
@@ -311,11 +299,7 @@ async function main() {
     camera.position.z = Math.cos(camAngle) * 18
     camera.position.y = 6 + Math.sin(time * 0.15) * 3
     camera.lookAt(0, 0, 0)
-
-    await engine.drawScene(scene, frameBuffer, deltaTime)
-  }
-
-  renderer.on("frame", animate)
+  })
 }
 
 main().catch((err) => {
